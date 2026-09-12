@@ -1,0 +1,6 @@
+path: /mnt/workspace/neu_det
+train: images/train
+val: images/val
+
+nc: 6
+names: ['crazing', 'inclusion', 'patches', 'pitted_surface', 'rolled-in_scale', 'scratches']
