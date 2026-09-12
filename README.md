@@ -48,41 +48,74 @@
 
 1. 克隆仓库
 
+```
+# code block
+
 git clone https://gitee.com/chen-liangana/steel-defect-detector.git
 
 cd steel-defect-detector
 
+```
+
 2. 创建虚拟环境
+
+```
+# code block
 
 python3 -m venv venv
 
 source venv/bin/activate
 
+```
+
 3. 安装依赖
 
+```
+# code block
+
 pip install -r requirements.txt
+
+```
 
 4. 放入模型权重
 
 将训练好的 best.pt 放到 weights/ 目录下
 
+```
+# code block
+
 mkdir -p weights
 
 cp /path/to/best.pt weights/
 
+```
+
 5. 启动服务
 
+```
+# code block
+
 streamlit run app.py
+
+```
 
 浏览器打开 `http://localhost:8501` 即可使用。
 
 ### 方式二：Docker 部署
 
+```
+# code block
+
 docker build -t steel-defect-detector .
 
 docker run -p 8501:8501 steel-defect-detector
 
+```
+
 ## 🏋️ 模型训练
+
+```
+# code block
 
 python
 
@@ -103,6 +136,8 @@ batch=16,
 name="steel_yolov8n"
 
 )
+
+```
 
 训练完成后将最佳权重 `runs/detect/steel_yolov8n/weights/best.pt` 放入 `weights/` 目录。
 
