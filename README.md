@@ -1,16 +1,17 @@
 # 钢材表面缺陷智能检测系统
 
-> YOLOv8n + Streamlit 的钢板表面缺陷检测 Demo：上传一张钢板图像，框出 6 类缺陷，给出类别、置信度、数量统计与处理建议。
+> YOLOv8n + Streamlit 的钢板表面缺陷检测 Demo：批量上传钢板图像，框出 6 类缺陷并汇总成一张结果表；缺陷问答走「中文向量检索 + DeepSeek 生成」，并在回答里给出引用段落。
 
 ![检测效果](docs/detect.png)
 
 ## 功能
 
 - **YOLOv8n 目标检测**：识别 NEU-DET 的 6 类表面缺陷，单图推理（M1 Mac）小于 0.1s
-- **结果可视化**：原图与检测结果并排，框上标注类别与置信度
-- **数据统计**：各类缺陷计数卡片 + 检测明细表（类别、置信度、框坐标）
-- **规则知识库问答**：按缺陷类型返回预设的成因与处理建议。**实现方式是按关键词匹配固定条目，没有向量检索，也没有接入大语言模型**（早期版本写作「RAG」，表述不准确，已改正）
-- **Docker 部署**：镜像内启动 Streamlit
+- **多图批量检测**：一次上传多张，逐张给出原图与检测结果，最后汇总成一张统计表
+- **阈值与类别筛选**：侧栏调置信度阈值，并可按类别只看关心的缺陷（筛选直接传给模型，不是只过滤展示）
+- **导出 CSV**：明细（图片、类别、中文名、置信度、框坐标）一键下载，UTF-8 BOM 可直接用 Excel 打开
+- **知识问答（检索 + 生成）**：知识文档切块 → bge-small-zh 编码 → 本地向量索引 → 余弦检索 Top-4 → DeepSeek 生成，回答带引用来源
+- **降级不崩**：没有 API key、没建索引、依赖缺失或接口报错时，自动回退到规则匹配；没有权重时检测不可用但页面与问答照常
 
 ## 缺陷类别与指标
 
@@ -31,7 +32,7 @@
 
 ### 初始界面
 
-左侧为设置栏（置信度阈值滑块 + 6 类缺陷列表），右侧为图片上传区。
+左侧为设置栏（置信度阈值、类别筛选），右侧为图片上传区。
 
 ![初始界面](docs/ui-home.png)
 
@@ -43,7 +44,7 @@
 
 ### 数据统计与知识问答
 
-底部展示缺陷计数、检测明细表，以及按类别返回的成因与处理建议。
+底部展示缺陷计数与检测明细表，问答页给出带引用的回答。
 
 ![数据统计与知识问答](docs/stats-knowledge.png)
 
@@ -65,35 +66,65 @@ source venv/bin/activate
 
 ### 3. 安装依赖
 
+三份依赖按需安装：
+
+| 文件 | 用途 | 内容 |
+|------|------|------|
+| `requirements.txt` | 检测 Demo 与页面 | streamlit、ultralytics、opencv-python、numpy、pillow、pandas |
+| `requirements-rag.txt` | 检索问答 | sentence-transformers、openai |
+| `requirements-dev.txt` | 测试与 CI | pytest、numpy |
+
 ```bash
 pip install -r requirements.txt
+pip install -r requirements-rag.txt   # 只想跑检测可以跳过
 ```
 
-依赖清单见 `requirements.txt`，其中没有锁定版本号（训练与演示时所用的具体版本未记录），安装时由 pip 解析当前可用的版本。如果遇到版本冲突，建议优先固定 `ultralytics` 与 `streamlit` 两个包。
+依赖没有锁定版本（训练与演示时所用的具体版本未记录），安装时由 pip 解析当前可用版本。遇到冲突时优先固定 `ultralytics`、`streamlit` 与 `sentence-transformers`。
 
 ### 4. 准备权重
 
-本仓库不包含模型权重（`weights/` 在 `.gitignore` 中）。需要通过下面的「模型训练」自行训练，或向作者索取 `best.pt`，放到：
-
-```
-weights/best.pt
-```
-
-也可以用环境变量指定其他位置：
+本仓库不包含模型权重（`weights/` 在 `.gitignore` 中）。需要通过下面的「模型训练」自行训练，或向作者索取 `best.pt`，放到 `weights/best.pt`；也可以用环境变量指定：
 
 ```bash
 export MODEL_PATH=/path/to/best.pt
 ```
 
-权重缺失时页面仍能正常打开，侧栏会提示「没有找到权重文件」，此时上传图片不会崩溃，只会提示无法检测。
+权重缺失时页面仍能正常打开，侧栏与检测页会提示「没有找到权重文件」，问答不受影响。
 
-### 5. 启动
+### 5. 建知识索引（问答需要）
+
+```bash
+python -m rag.build
+```
+
+首次运行会下载 `BAAI/bge-small-zh-v1.5`（约 100MB）。产物写到 `index/`（已被 `.gitignore` 忽略），包括 `vectors.npy`、`chunks.json`、`meta.json`。换 embedding 模型时用环境变量 `EMBED_MODEL` 指定，并重新建索引。
+
+### 6. 配置生成模型的 key
+
+```bash
+export DEEPSEEK_API_KEY=sk-...
+```
+
+key 只从环境变量读取，仓库里没有任何硬编码；没有配置时问答自动回退到规则匹配，不会报错。
+
+### 7. 启动
 
 ```bash
 streamlit run app.py
 ```
 
 浏览器打开 `http://localhost:8501`。
+
+## 知识问答是怎么走的
+
+1. **切块**：`knowledge/*.md` 每类一篇，含外观特征、常见成因、对下游工序的影响、处置建议四节。按二级标题分节，再把段落合并成不超过 420 字的块，块头拼上「类别 · 小节」作为上下文（`rag/chunking.py`）。
+2. **编码**：`rag/embedder.py` 用 Sentence-Transformers 加载中文模型（默认 `BAAI/bge-small-zh-v1.5`，可换 `text2vec-base-chinese`），查询侧加 bge 建议的指令前缀。
+3. **索引**：向量归一化后存 `index/vectors.npy`，块存 `index/chunks.json`，不引入 faiss——几十个块用 numpy 暴力检索就够（`rag/index.py`）。
+4. **检索**：余弦相似度取 Top-4，低于 0.30 的丢弃；没有命中就回退规则。
+5. **生成**：`rag/generate.py` 走 OpenAI 兼容接口（`https://api.deepseek.com`，`deepseek-chat`），提示词要求只依据资料作答、按编号引用、资料不足直接说不足。
+6. **编排与降级**：`rag/qa.py` 依次检查索引、key、依赖；任何一步失败都会给出可读原因并回退到原来的规则匹配，页面不崩。
+
+回答下方的「引用来源」展开区会列出命中的文档段落、小节标题与相似度，便于核对模型有没有编。
 
 ## Docker 部署
 
@@ -102,10 +133,14 @@ docker build -t steel-defect-detector .
 docker run -p 8501:8501 steel-defect-detector
 ```
 
-镜像内不包含权重，运行时请把权重目录挂载进去：
+镜像内不包含权重与索引，运行时挂载进去：
 
 ```bash
-docker run -p 8501:8501 -v "$PWD/weights:/app/weights" steel-defect-detector
+docker run -p 8501:8501 \
+  -v "$PWD/weights:/app/weights" \
+  -v "$PWD/index:/app/index" \
+  -e DEEPSEEK_API_KEY \
+  steel-defect-detector
 ```
 
 ## 模型训练
@@ -123,9 +158,7 @@ model.train(
 )
 ```
 
-训练完成后，把 `runs/detect/steel_yolov8n/weights/best.pt` 放到 `weights/` 目录。
-
-仓库里没有训练脚本的封装，上面这段就是训练时使用的入口，数据集路径由 `data.yaml` 指定。
+训练完成后，把 `runs/detect/steel_yolov8n/weights/best.pt` 放到 `weights/` 目录。仓库里没有训练脚本的封装，上面这段就是训练时使用的入口，数据集路径由 `data.yaml` 指定。
 
 ## 评估
 
@@ -136,6 +169,17 @@ python eval.py --weights weights/best.pt --data data.yaml
 脚本会调用 Ultralytics 的 `val()`，打印总体 mAP50、mAP50-95 和每个类别的 mAP50，与上表的统计口径一致。
 
 验证集的划分在 `data.yaml` 中通过 `images/train` 与 `images/val` 两个目录区分；本仓库没有记录训练时使用的具体划分比例与随机种子，复现时请沿用你自己的划分，并在对比数字时注意这一点。
+
+## 测试与 CI
+
+```bash
+pip install -r requirements-dev.txt
+pytest -q
+```
+
+测试只覆盖纯函数：结果汇总、类别筛选、CSV 导出（`tests/test_core.py`），文档切块（`tests/test_chunking.py`），归一化、余弦与检索排序（`tests/test_index.py`）。不依赖模型权重、网络或 API key。
+
+GitHub Actions（`.github/workflows/ci.yml`）在每次 push 与 PR 时执行：安装 `requirements-dev.txt` → `py_compile` 全部 Python 文件 → `pytest`。运行期的重依赖（torch、ultralytics、sentence-transformers）不装，因为编译与纯函数测试不需要它们。
 
 ## 数据
 
@@ -152,20 +196,33 @@ datasets/neu_det/
     └── val/
 ```
 
-- 数据集的获取方式与使用许可以数据集发布方的说明为准（常见途径是在 Kaggle 搜索 NEU-DET，或查阅该数据集原始论文的配套资源）。本仓库的 MIT 许可仅覆盖代码本身，不覆盖数据。
+- 数据集的获取方式与使用许可以数据集发布方的说明为准（常见途径是在 Kaggle 搜索 NEU-DET，或查阅该数据集原始论文的配套资源）。本仓库的 MIT 许可仅覆盖代码与知识文档，不覆盖数据。
 
 ## 项目结构
 
 ```
 steel-defect-detector/
-├── app.py               # Streamlit 主程序：上传、推理、统计、知识问答
-├── eval.py              # 在验证集上重跑指标
-├── data.yaml            # NEU-DET 数据集配置（相对路径）
-├── requirements.txt     # Python 依赖
-├── Dockerfile           # 容器化配置
-├── LICENSE              # MIT
-├── .gitignore           # 忽略权重、数据和训练产物
-└── docs/                # 界面截图
+├── app.py                    # Streamlit 主程序：多图检测、筛选、导出、问答
+├── core.py                   # 纯函数：类别映射、筛选、汇总、CSV
+├── eval.py                   # 在验证集上重跑指标
+├── data.yaml                 # NEU-DET 数据集配置（相对路径）
+├── requirements.txt          # 检测与页面依赖
+├── requirements-rag.txt      # 检索问答依赖
+├── requirements-dev.txt      # 测试依赖
+├── Dockerfile                # 容器化配置
+├── LICENSE                   # MIT
+├── knowledge/                # 六类缺陷知识文档（检索语料）
+├── rag/
+│   ├── knowledge.py          # 类别标签、关键词、规则兜底文本
+│   ├── chunking.py           # 文档切块（纯函数）
+│   ├── embedder.py           # 中文 embedding 封装
+│   ├── index.py              # 本地向量索引与余弦检索
+│   ├── build.py              # python -m rag.build 建索引
+│   ├── generate.py           # DeepSeek 生成
+│   └── qa.py                 # 问答编排与降级
+├── tests/                    # pytest 纯函数测试
+├── .github/workflows/ci.yml  # CI：编译 + 测试
+└── docs/                     # 界面截图
     ├── ui-home.png
     ├── detect.png
     └── stats-knowledge.png
@@ -177,17 +234,19 @@ steel-defect-detector/
 |------|------|
 | 目标检测 | YOLOv8 (Ultralytics) |
 | 前端界面 | Streamlit |
-| 知识问答 | 关键词匹配的规则知识库（非 RAG） |
+| 检索 | bge-small-zh-v1.5 + numpy 余弦相似度 |
+| 生成 | DeepSeek `deepseek-chat`（OpenAI 兼容接口） |
 | 图像处理 | OpenCV / Pillow |
 | 部署 | Docker |
 
 ## 已知局限
 
+- 知识库只有 6 类缺陷、每类一篇文档，超出范围的提问会回退到规则或直接说资料不足
+- 检索质量取决于文档质量：块是按标题与段落机选的固定 420 字，没有做语义分段与重排
+- 生成结果依赖外部模型，可能仍出现与资料不符的表述；引用只标注到段落，没有逐句核对
 - 只做单图推理，没有视频流、批量目录或产线时序的接入
-- 知识库是 6 条固定文本，新增缺陷类型需要改代码
-- 权重与训练产物不入库，仓库本身不能开箱即用地检测
-- 没有误检/漏检的业务成本评估，指标只有 mAP
-- crazing（裂纹）一类的 mAP50 只有 0.441，细长、低对比度缺陷是当前的弱项
+- 权重、索引与训练产物都不入库，仓库不能开箱即用地检测
+- 指标只有 mAP，没有误检/漏检的业务成本评估；crazing 一类的 mAP50 只有 0.441，细长、低对比度缺陷是弱项
 
 ## License
 
