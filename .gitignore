@@ -7,3 +7,6 @@ weights/
 images/
 labels/
 datasets/
+index/
+.env
+.pytest_cache/
