@@ -24,9 +24,15 @@ DEFECT_KNOWLEDGE = {
 }
 
 # ---------- 模型加载 ----------
+# 权重缺失或读不出来时不让页面崩掉：返回 None + 原因，界面照常打开
 @st.cache_resource
-def load_model():
-    return YOLO(MODEL_PATH)
+def load_model(path):
+    if not os.path.exists(path):
+        return None, f"没有找到权重文件：{path}"
+    try:
+        return YOLO(path), ""
+    except Exception as e:
+        return None, f"权重读不出来：{e}"
 
 def draw_boxes(img, boxes, names):
     for b in boxes:
@@ -43,7 +49,7 @@ st.set_page_config(page_title="钢材表面缺陷检测", layout="wide")
 st.title("🔧 钢材表面缺陷检测系统")
 st.caption("YOLOv8n · NEU-DET · 6 类缺陷")
 
-model = load_model()
+model, model_err = load_model(MODEL_PATH)
 
 with st.sidebar:
     st.header("设置")
@@ -54,10 +60,17 @@ with st.sidebar:
         st.markdown(f"- {c}")
     st.markdown("---")
     st.markdown("上传一张钢板表面图片开始检测。")
+    if model is None:
+        st.markdown("---")
+        st.warning(model_err)
+        st.caption("把训练好的 best.pt 放进 weights/ 后刷新页面即可检测。")
 
 uploaded = st.file_uploader("上传图片", type=["jpg", "jpeg", "png", "bmp"])
 
 if uploaded is not None:
+    if model is None:
+        st.warning("当前没有可用的模型权重，无法检测。把 best.pt 放进 weights/ 后刷新页面。")
+        st.stop()
     img_pil = Image.open(uploaded).convert("RGB")
     img_bgr = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
     
